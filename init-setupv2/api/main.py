@@ -4,8 +4,6 @@ import random
 import string
 from sqlalchemy import func
 
-
-
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///prod.db'
 db = SQLAlchemy(app)
@@ -15,16 +13,16 @@ class fm(db.Model):
     hostname = db.Column(db.String(80), nullable=False)
     adminUserName = db.Column(db.String(20), nullable=True)
     adminUserPw = db.Column(db.String(40), nullable=True)
+    setup_ready = db.Column(db.Boolean, default=False)
 
 with app.app_context():
     db.create_all()
 
-
 @app.route('/')
 def hello_world():
-    return 'Hello, World!'
+    return 'This is the FusionMiner Setup API!'
 
-@app.route('/api/v1/fm/generate-hostname', methods=['POST'])
+@app.route('/api/v2/fm/generate-hostname', methods=['POST'])
 def generate_hostname():
     data = request.get_json()
     num = data.get('fm-model')
@@ -38,7 +36,20 @@ def generate_hostname():
     db.session.commit()
     return jsonify({"hostname": result_hostname, "id": entry.id})
 
-@app.route('/api/v1/fm/update', methods=['POST'])
+@app.route('/api/v2/fm/delete', methods=['POST'])
+def delete_fm():
+    data = request.get_json()
+    hostname = data.get('hostname')
+    if not hostname:
+        abort(400, description="Missing 'hostname'")
+    entry = fm.query.filter_by(hostname=hostname).first()
+    if entry is None:
+        abort(404, description="Hostname not found")
+    db.session.delete(entry)
+    db.session.commit()
+    return jsonify({'message': 'Entry deleted successfully'})
+
+@app.route('/api/v2/fm/update', methods=['POST'])
 def update_fm():
     data = request.get_json()
     hostname = data.get('hostname')
@@ -58,10 +69,28 @@ def update_fm():
 
     return jsonify({'message': 'Entry updated successfully'})
 
-@app.route('/api/v1/fm/showall', methods=['GET'])
+@app.route('/api/v2/fm/status', methods=['POST'])
+def update_status():
+    data = request.get_json()
+    hostname = data.get('hostname')
+    setup_ready = data.get('setup_ready')
+
+    if not hostname or setup_ready is None:
+        abort(400, description="Missing required fields")
+
+    entry = fm.query.filter_by(hostname=hostname).first()
+    if entry is None:
+        abort(404, description="Hostname not found")
+
+    entry.setup_ready = setup_ready
+    db.session.commit()
+
+    return jsonify({'message': 'Status updated successfully'})
+
+@app.route('/api/v2/fm/showall', methods=['GET'])
 def show_all():
     entries = fm.query.all()
-    return jsonify([{"hostname": entry.hostname, "adminUserName": entry.adminUserName, "adminUserPw": entry.adminUserPw} for entry in entries])
+    return jsonify([{"hostname": entry.hostname, "adminUserName": entry.adminUserName, "adminUserPw": entry.adminUserPw, "setup_ready": entry.setup_ready} for entry in entries])
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0')
