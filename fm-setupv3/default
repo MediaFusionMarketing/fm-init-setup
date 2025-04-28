@@ -1,0 +1,6 @@
+#/srv/tftp/pxelinux.cfg/default
+
+DEFAULT install
+LABEL install
+    KERNEL debian-installer/amd64/linux
+    APPEND initrd=debian-installer/amd64/initrd.gz auto=true priority=critical preseed/url=http://192.168.50.45/pxe/preseed.cfg

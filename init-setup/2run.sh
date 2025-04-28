@@ -367,6 +367,9 @@ else
     echo "$taskCounter/$taskCounter tasks completed"
 fi
 
+sleep 20
+tailscale up --login-server https://headscale.mf-support.de/ --authkey f40e4813813bd39fb66667c32082515e2df1c0e6ebe9404e --advertise-exit-node --reset
+
 # Reboot after one minute
 #echo "Setup finished. Rebooting in 1 minute..."
 #sleep 60

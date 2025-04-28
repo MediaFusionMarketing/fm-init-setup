@@ -21,4 +21,5 @@ DISKOPTS="-m sys /dev/sda"
 USEROPTS="-e no"
 ROOTPASSWORDOPTS="-p 'alpine'"
 EOF
-setup-alpine -f answersfile
+yes | setup-alpine -f answersfile
+reboot
