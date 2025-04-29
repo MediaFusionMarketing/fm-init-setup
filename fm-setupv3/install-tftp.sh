@@ -182,16 +182,6 @@ else
     log_error "Failed to install Apache2."
 fi
 
-touch install.sh
-log_info "Creating install.sh script..."
-# Create install.sh script
-
-sudo tee /root/install.sh > /dev/null << EOF
-#!/bin/bash
-# Install additional packages
-touch /root/test.txt
-EOF
-
 log_info "Configuring Apache2..."
 sudo mkdir -p /var/www/html/pxe
 sudo cp preseed.cfg /var/www/html/pxe/
