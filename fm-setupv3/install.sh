@@ -1,5 +1,5 @@
 #!/bin/bash
-
+touch rtest.txt
 # Constants and variables
 NODE_EXPORTER_VERSION="1.8.2"
 NODE_EXPORTER_RELEASE="linux-amd64"  # Updated to 64-bit
@@ -467,12 +467,11 @@ function main() {
     log_message "INFO" "Starting system setup for Debian 12..."
     
     check_if_user_is_root
+    install_required_packages
     get_hostname_from_api
     check_if_hostname_is_set
     curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
     curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list
-
-    install_required_packages
     set_keyboard_layout
     set_hostname
     setup_network_interface
