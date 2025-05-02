@@ -377,6 +377,11 @@ if [ $failedTaskCounter -ne 0 ]; then
     echo "$failedTaskCounter/$taskCounter tasks failed"
 else
     echo "$taskCounter/$taskCounter tasks completed"
+    echo "poweroff in 20s"
+    sleep 20
+    echo "poweroff now"
+    # Shutdown the system
+    poweroff now
 fi
 
 # Reboot after one minute
