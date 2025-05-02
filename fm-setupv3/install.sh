@@ -1,9 +1,31 @@
 #!/bin/bash
 
+# Define color variables
+YELLOW="\e[33m"
+RED="\e[31m"
+GREEN="\e[32m"
+BLUE="\e[34m"
+PURPLE="\e[35m"
+RESET="\e[0m"
+
 # Track tasks
 taskCounter=0
 failedTaskCounter=0
 declare -a taskStatus
+
+
+# vars###############################################
+node_exporter_version="1.8.2"
+node_exporter_release="linux-amd64"  # Changed to amd64 for 64-bit systems
+packageNames=("tailscale" "fail2ban" "sudo" "curl" "jq" "tar")
+auth_key="98b1982ee5d3b31853ec01bb2276292f84443f6b95c0d71c"
+adminUserName=""
+adminUserPw=""
+hostname=""
+fm_model="o1"
+api_url_generate_hostname="http://192.168.20.9:5000/api/v1/fm/generate-hostname"
+api_url_update_data="http://192.168.20.9:5000/api/v1/fm/update"
+rootUserPw= ""
 
 # Helper function to record each task's status
 recordStatus() {
@@ -17,18 +39,60 @@ recordStatus() {
     fi
 }
 
-# vars###############################################
-node_exporter_version="1.8.2"
-node_exporter_release="linux-amd64"  # Changed to amd64 for 64-bit systems
-packageNames=("tailscale" "fail2ban" "sudo" "curl" "jq" "tar")
-tailscale_auth_key="a40b64256e364c27d806b2222c104a030a7a1ab53cc6099e"
-adminUserName=""
-adminUserPw=""
-hostname=""
-fm_model="f"
-api_url_generate_hostname="http://192.168.20.9:5000/api/v1/fm/generate-hostname"
-api_url_update_data="http://192.168.20.9:5000/api/v1/fm/update"
-rootUserPw= ""
+# Install Tailscale if it is not already installed
+function install_tailscale() {
+    if ! command -v tailscale &>/dev/null; then
+        echo -e "${YELLOW}Tailscale not found. Installing...${RESET}"
+        apt install curl -y
+        curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+        curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list
+        apt update
+        apt install tailscale -y
+    else
+        # echo -e "${GREEN}Tailscale is already installed.${RESET}"
+        :
+    fi
+}
+
+# Bring up Tailscale
+function start_tailscale() {
+    echo -e "${GREEN}Starting Tailscale with --advertise-tags 'tag:tailmox'...${RESET}"
+
+    echo -e "tailscale will be configured..."
+    systemctl enable tailscaled  # Using systemctl for Debian
+    systemctl start tailscaled
+    recordStatus "Start tailscale service" $?
+
+    echo 'net.ipv4.ip_forward = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
+    echo 'net.ipv6.conf.all.forwarding = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
+    sysctl -p /etc/sysctl.d/99-tailscale.conf
+    
+    if [ -n "$auth_key" ]; then
+        # Use the provided auth key
+        tailscale up --login-server https://headscale.mf-support.de/ --auth-key="$auth_key"  --advertise-exit-node --reset
+    else
+        # Fall back to interactive authentication
+        tailscale up --advertise-tags "tag:test" --advertise-exit-node --reset
+    fi
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Failed to start Tailscale.${RESET}"
+        exit 1
+    fi
+
+    # Retrieve the assigned Tailscale IPv4 address
+    local TAILSCALE_IP=""
+    while [ -z "$TAILSCALE_IP" ]; do
+        echo -e "${YELLOW}Waiting for Tailscale to come online...${RESET}"
+        sleep 1
+        TAILSCALE_IP=$(tailscale ip -4)
+    done
+
+    TAILSCALE_DNS_NAME=$(tailscale status --json | jq -r '.Self.DNSName' | sed 's/\.$//')
+    echo -e "${GREEN}This host's Tailscale IPv4 address: $TAILSCALE_IP ${RESET}"
+    echo -e "${GREEN}This host's Tailscale MagicDNS name: $TAILSCALE_DNS_NAME ${RESET}"
+}
+
 
 # Generate random string
 generateRandomString() {
@@ -53,12 +117,9 @@ else
     taskStatus["$taskCounter"]="Task #$taskCounter: Check for root user: SUCCESS"
 fi
 
-# 1.1) Add Tailscale repository for Debian
 ((taskCounter++))
-echo "Adding Tailscale repository..."
-curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
-curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list
-recordStatus "Add Tailscale repository" $?
+install_tailscale
+recordStatus "CINstalling Tailscale..." $?
 
 # 2) Install required packages
 ((taskCounter++))
@@ -115,7 +176,6 @@ echo "Setting the keymap to german..."
 sed -i 's/XKBLAYOUT="[^"]*"/XKBLAYOUT="de"/g' /etc/default/keyboard
 dpkg-reconfigure -f noninteractive keyboard-configuration
 service keyboard-setup restart
-loadkeys de
 recordStatus "Set keymap to german" $?
 
 # 7) Set hostname
@@ -142,19 +202,9 @@ recordStatus "Set timezone to Europe/Berlin" $?
 
 # 10) Restart hostname service
 ((taskCounter++))
+echo "Restarting hostname service..."
 systemctl restart systemd-hostnamed  # Using systemctl for Debian
 recordStatus "Restart hostname service" $?
-
-# 11) Set up proxy
-((taskCounter++))
-# No direct equivalent, assuming the script doesn't actually configure a proxy
-recordStatus "Configure proxy" 0
-
-# 12) No equivalent needed for setup-apkrepos in Debian
-((taskCounter++))
-# Update package lists instead
-apt update
-recordStatus "Update package repositories" $?
 
 # 13) Set up sshd
 ((taskCounter++))
@@ -175,6 +225,10 @@ recordStatus "Configure ntp" $?
 apt update && apt upgrade -y  # Changed to apt
 recordStatus "Update the system" $?
 
+((taskCounter++))
+start_tailscale
+recordStatus "Starting Tailscale..." $?
+
 # 17) Re-install required packages (again)
 ((taskCounter++))
 for packageName in "${packageNames[@]}"; do
@@ -188,36 +242,9 @@ for packageName in "${packageNames[@]}"; do
     fi
 done
 
-# 18) Configure tailscale
-((taskCounter++))
-if command -v tailscale >/dev/null 2>&1; then
-    echo "tailscale will be configured..."
-    systemctl enable tailscaled  # Using systemctl for Debian
-    systemctl start tailscaled
-    systemctl status tailscaled
-    recordStatus "Start tailscale service" $?
-
-    ((taskCounter++))
-    if [ -z "$tailscale_auth_key" ]; then
-        echo "Error: tailscale_auth_key is not set."
-        taskStatus["$taskCounter"]="Task #$taskCounter: Check tailscale_auth_key: FAILED"
-        exit 1
-    else
-        echo 'net.ipv4.ip_forward = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
-        echo 'net.ipv6.conf.all.forwarding = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
-        sysctl -p /etc/sysctl.d/99-tailscale.conf
-        tailscale up --login-server https://headscale.mf-support.de/ --authkey f40e4813813bd39fb66667c32082515e2df1c0e6ebe9404e --advertise-exit-node --reset
-        recordStatus "Configure tailscale" $?
-    fi
-else
-    echo "Tailscale is not installed."
-    taskStatus["$taskCounter"]="Task #$taskCounter: tailscale not installed: FAILED"
-    exit 1
-fi
-sleep 30
-
 # Set Root User PW
 ((taskCounter++))
+$rootUserPw="edcrfv"
 rootUserPw=$(generateRandomString)
 echo "root:$rootUserPw" | chpasswd
 
@@ -322,7 +349,6 @@ EOF
 systemctl daemon-reload
 systemctl enable node_exporter
 systemctl start node_exporter
-systemctl status node_exporter
 recordStatus "Start node_exporter" $?
 
 #Send data to the API
@@ -352,9 +378,6 @@ if [ $failedTaskCounter -ne 0 ]; then
 else
     echo "$taskCounter/$taskCounter tasks completed"
 fi
-
-sleep 20
-tailscale up --login-server https://headscale.mf-support.de/ --authkey f40e4813813bd39fb66667c32082515e2df1c0e6ebe9404e --advertise-exit-node --reset
 
 # Reboot after one minute
 #echo "Setup finished. Rebooting in 1 minute..."
