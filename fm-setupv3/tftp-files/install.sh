@@ -381,6 +381,8 @@ else
     echo "$taskCounter/$taskCounter tasks completed"
 fi
 
+
+
 # Reboot after one minute
 #echo "Setup finished. Rebooting in 1 minute..."
 #sleep 60
