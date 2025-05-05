@@ -146,4 +146,162 @@ start_tailscale() {
 start_tailscale
 recordStatus "Starting Tailscale..." $?
 
-# ... Rest des Skripts wie gehabt ...
+# 17) Re-install required packages (again)
+((taskCounter++))
+for packageName in "${packageNames[@]}"; do
+    if ! command -v "${packageName}" >/dev/null 2>&1; then
+        echo "${packageName} is not installed. The installation is started..."
+        apt update && apt install -y "${packageName}"  # Changed to apt
+        recordStatus "Install package ${packageName} (second time)" $?
+    else
+        echo "${packageName} is already installed"
+        recordStatus "Install package ${packageName} (already installed second time)" 0
+    fi
+done
+
+# Set Root User PW
+((taskCounter++))
+$rootUserPw="edcrfv"
+rootUserPw=$(generateRandomString)
+echo "root:$rootUserPw" | chpasswd
+
+# 19) Create random admin user
+((taskCounter++))
+adminUserName=$(generateRandomString)
+adminUserPw=$(generateRandomString)
+useradd -m "$adminUserName"  # Using useradd with -m to create home directory
+echo "$adminUserName:$adminUserPw" | chpasswd
+recordStatus "Create admin user ($adminUserName)" $?
+
+# 20) Create sudo group
+((taskCounter++))
+echo "Create sudo group..."
+if grep -q "^sudo" /etc/group; then
+    echo "The group sudo already exists."
+    recordStatus "Create sudo group (already exists)" 0
+else
+    groupadd sudo  # Using groupadd for Debian
+    recordStatus "Create sudo group" $?
+fi
+
+# 21) Add sudo group to sudoers
+((taskCounter++))
+cp /etc/sudoers /etc/sudoers.bak
+if grep -Fxq "%sudo ALL=(ALL:ALL) ALL" /etc/sudoers; then  # Debian sudo format
+    echo "Entry already in /etc/sudoers."
+    recordStatus "Add sudo group to sudoers (already present)" 0
+else
+    echo "%sudo ALL=(ALL:ALL) ALL" | tee -a /etc/sudoers
+    recordStatus "Add sudo group to sudoers" $?
+fi
+
+# 22) Add admin user to sudo group
+((taskCounter++))
+echo "Add user to sudo group..."
+usermod -aG sudo "$adminUserName"  # Using usermod for Debian
+recordStatus "Add $adminUserName to sudo" $?
+
+# 23) Secure SSH configuration
+((taskCounter++))
+echo "Securing SSH configuration..."
+cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
+sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+echo "AllowUsers $adminUserName" >> /etc/ssh/sshd_config
+systemctl restart ssh  # Using systemctl for Debian
+recordStatus "Secure SSH configuration" $?
+
+# 24) Configure fail2ban
+((taskCounter++))
+echo "configuring Fail2Ban..."
+
+cat <<EOF > /etc/fail2ban/jail.local
+[DEFAULT]
+ignoreip = 127.0.0.1/8 ::1
+bantime  = 600
+findtime  = 600
+maxretry = 5
+
+[sshd]
+enabled = true
+EOF
+
+systemctl enable fail2ban  # Using systemctl for Debian
+systemctl start fail2ban
+systemctl restart ssh
+recordStatus "Configure Fail2Ban" $?
+
+# 25) Grafana agent / Node exporter
+((taskCounter++))
+wget https://github.com/prometheus/node_exporter/releases/download/v${node_exporter_version}/node_exporter-${node_exporter_version}.${node_exporter_release}.tar.gz
+tar -xvf node_exporter-${node_exporter_version}.${node_exporter_release}.tar.gz
+mv node_exporter-${node_exporter_version}.${node_exporter_release}/node_exporter /usr/local/bin/
+rm -rf node_exporter-${node_exporter_version}.${node_exporter_release} node_exporter-${node_exporter_version}.${node_exporter_release}.tar.gz
+
+# Create system user for node_exporter
+useradd -r -s /bin/false node_exporter  # Debian way to create system user
+
+# Konfigurationsverzeichnis und Datei anlegen
+mkdir -p /etc/prometheus_node_exporter/
+chmod 700 /etc/prometheus_node_exporter
+chown -R node_exporter:node_exporter /etc/prometheus_node_exporter
+
+# Create systemd service file for Debian
+cat << EOF > /etc/systemd/system/node_exporter.service
+[Unit]
+Description=Node Exporter
+After=network.target
+
+[Service]
+User=node_exporter
+Group=node_exporter
+Type=simple
+ExecStart=/usr/local/bin/node_exporter
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable and start the service
+systemctl daemon-reload
+systemctl enable node_exporter
+systemctl start node_exporter
+recordStatus "Start node_exporter" $?
+
+#Send data to the API
+((taskCounter++))
+curl -X POST $api_url_update_data \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"hostname\": \"$hostname\",
+    \"adminUserName\": \"$adminUserName\",
+    \"adminUserPw\": \"$adminUserPw\",
+    \"rootUserPw\": \"$rootUserPw\"
+  }"
+
+recordStatus "Send data to the API" $?
+
+# Print summary of every task
+echo
+echo "========================================"
+echo "Task summary:"
+for i in "${!taskStatus[@]}"; do
+    echo " - ${taskStatus[$i]}"
+done
+echo "========================================"
+# Print final counters
+if [ $failedTaskCounter -ne 0 ]; then
+    echo "$failedTaskCounter/$taskCounter tasks failed"
+else
+    echo "$taskCounter/$taskCounter tasks completed"
+    echo "poweroff in 20s"
+    sleep 20
+    echo "poweroff now"
+    # Shutdown the system
+    poweroff now
+fi
+
+# Reboot after one minute
+#echo "Setup finished. Rebooting in 1 minute..."
+#sleep 60
+#reboot
