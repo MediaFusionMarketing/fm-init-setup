@@ -1,12 +1,4 @@
 #!/bin/bash
-set -x
-
-export DEBIAN_FRONTEND=noninteractive
-
-# --- tzdata non-interactive vorab befüllen ---
-echo "tzdata tzdata/Areas select Europe"   | debconf-set-selections
-echo "tzdata tzdata/Zones/Europe select Berlin" | debconf-set-selections
-# ------------------------------------------------
 
 # Define color variables
 YELLOW="\e[33m"
@@ -21,22 +13,10 @@ taskCounter=0
 failedTaskCounter=0
 declare -a taskStatus
 
-recordStatus() {
-    local description="$1"
-    local exitCode="$2"
-    if [ "$exitCode" -eq 0 ]; then
-        taskStatus["$taskCounter"]="$description: SUCCESS"
-    else
-        taskStatus["$taskCounter"]="$description: FAILED"
-        ((failedTaskCounter++))
-    fi
-}
-
-# vars###############################################
+# vars ###############################################
 node_exporter_version="1.8.2"
 node_exporter_release="linux-amd64"
-# tzdata ergänzt
-packageNames=("tzdata" "tailscale" "fail2ban" "sudo" "curl" "jq" "tar")
+packageNames=( "tailscale" "fail2ban" "sudo" "curl" "jq" "tar" )
 auth_key="f40e4813813bd39fb66667c32082515e2df1c0e6ebe9404e"
 adminUserName=""
 adminUserPw=""
@@ -46,71 +26,41 @@ api_url_generate_hostname="http://192.168.20.9:5000/api/v1/fm/generate-hostname"
 api_url_update_data="http://192.168.20.9:5000/api/v1/fm/update"
 rootUserPw=""
 
-# Helper to generate random strings
-generateRandomString() {
-    local length=$((RANDOM % 4 + 12))
-    tr -dc 'A-Za-z0-9' </dev/urandom | head -c"$length"
+# Helper: record each task’s status
+recordStatus() {
+    local desc="$1"
+    local code="$2"
+    if [ "$code" -eq 0 ]; then
+        taskStatus["$taskCounter"]="$desc: SUCCESS"
+    else
+        taskStatus["$taskCounter"]="$desc: FAILED"
+        ((failedTaskCounter++))
+    fi
 }
 
-# 1) Check if script is run as root
-((taskCounter++))
-if [ "$EUID" -ne 0 ]; then
-    echo "FAILED: Please execute the Script as root user"
-    taskStatus["$taskCounter"]="Task #$taskCounter: Check for root user: FAILED"
-    exit 1
-else
-    echo "NOTE: the script will be executed as root"
-    taskStatus["$taskCounter"]="Task #$taskCounter: Check for root user: SUCCESS"
-fi
-
-# Install Tailscale if it is not already installed
+# 0) Install Tailscale if missing
 install_tailscale() {
     if ! command -v tailscale &>/dev/null; then
         echo -e "${YELLOW}Tailscale not found. Installing...${RESET}"
         apt update -y
         apt install -y curl
         curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg \
-          | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+            | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
         curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list \
-          | tee /etc/apt/sources.list.d/tailscale.list
+            | tee /etc/apt/sources.list.d/tailscale.list
         apt update -y
         apt install -y tailscale
     fi
 }
 
-((taskCounter++))
-install_tailscale
-recordStatus "Installing Tailscale..." $?
-
-# 2) Install required packages (inkl. tzdata nun non-interactive)
-((taskCounter++))
-for packageName in "${packageNames[@]}"; do
-    if ! command -v "${packageName}" >/dev/null 2>&1; then
-        echo "${packageName} is not installed. Starting installation..."
-        apt update -y && apt install -y "${packageName}"
-        recordStatus "Install package ${packageName}" $?
-    else
-        echo "${packageName} is already installed"
-        recordStatus "Install package ${packageName} (already installed)" 0
-    fi
-done
-
-# ... (der Rest bis zur Tailscale-Funktion bleibt unverändert) ...
-
+# 1) Manual start of tailscaled (systemd is ignored in chroot)
 start_tailscale() {
-    echo -e "${GREEN}Starting Tailscale with --advertise-tags 'tag:tailmox'...${RESET}"
-
-    # Versuch systemd-first
-    if systemctl enable tailscaled && systemctl start tailscaled; then
-        recordStatus "Start tailscale service (systemd)" 0
-    else
-        echo -e "${YELLOW}systemd nicht verfügbar, starte tailscaled manuell...${RESET}"
-        nohup tailscaled --tun=userspace-networking \
-            --state=/var/lib/tailscale/tailscaled.state \
-            >/var/log/tailscaled.log 2>&1 &
-        sleep 2
-        recordStatus "Start tailscale service (manual)" $?
-    fi
+    echo -e "${GREEN}Starte tailscaled manuell...${RESET}"
+    nohup tailscaled --tun=userspace-networking \
+        --state=/var/lib/tailscale/tailscaled.state \
+        >/var/log/tailscaled.log 2>&1 &
+    sleep 2
+    recordStatus "Start tailscale daemon" $?
 
     echo 'net.ipv4.ip_forward = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
     echo 'net.ipv6.conf.all.forwarding = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
@@ -121,15 +71,13 @@ start_tailscale() {
                      --auth-key="$auth_key" \
                      --advertise-exit-node --reset
     else
-        tailscale up --advertise-tags "tag:test" --advertise-exit-node --reset
+        tailscale up --advertise-exit-node --reset
     fi
-
     if [ $? -ne 0 ]; then
-        echo -e "${RED}Failed to start Tailscale.${RESET}"
+        echo -e "${RED}Failed to run 'tailscale up'.${RESET}"
         exit 1
     fi
 
-    # Warte auf IP
     local TAILSCALE_IP=""
     while [ -z "$TAILSCALE_IP" ]; do
         echo -e "${YELLOW}Waiting for Tailscale to come online...${RESET}"
@@ -137,117 +85,193 @@ start_tailscale() {
         TAILSCALE_IP=$(tailscale ip -4)
     done
 
-    TAILSCALE_DNS_NAME=$(tailscale status --json | jq -r '.Self.DNSName' | sed 's/\.$//')
-    echo -e "${GREEN}This host's Tailscale IPv4 address: $TAILSCALE_IP ${RESET}"
-    echo -e "${GREEN}This host's Tailscale MagicDNS name: $TAILSCALE_DNS_NAME ${RESET}"
+    local DNSNAME
+    DNSNAME=$(tailscale status --json | jq -r '.Self.DNSName' | sed 's/\.$//')
+    echo -e "${GREEN}Tailscale IPv4: $TAILSCALE_IP${RESET}"
+    echo -e "${GREEN}MagicDNS name: $DNSNAME${RESET}"
 }
 
-((taskCounter++))
-start_tailscale
-recordStatus "Starting Tailscale..." $?
+# 2) Random string generator
+generateRandomString() {
+    local len=$((RANDOM % 4 + 12))
+    tr -dc 'A-Za-z0-9' </dev/urandom | head -c"$len"
+}
 
-# 17) Re-install required packages (again)
+# 3) Ensure we run as root
 ((taskCounter++))
-for packageName in "${packageNames[@]}"; do
-    if ! command -v "${packageName}" >/dev/null 2>&1; then
-        echo "${packageName} is not installed. The installation is started..."
-        apt update && apt install -y "${packageName}"  # Changed to apt
-        recordStatus "Install package ${packageName} (second time)" $?
+if [ "$EUID" -ne 0 ]; then
+    echo "FAILED: Please run as root"
+    taskStatus["$taskCounter"]="Check for root: FAILED"
+    exit 1
+else
+    taskStatus["$taskCounter"]="Check for root: SUCCESS"
+fi
+
+# 4) Install Tailscale
+((taskCounter++))
+install_tailscale
+recordStatus "Installing Tailscale" $?
+
+# 5) Install required packages
+((taskCounter++))
+for pkg in "${packageNames[@]}"; do
+    if ! command -v "$pkg" &>/dev/null; then
+        echo -e "${YELLOW}$pkg not found, installing...${RESET}"
+        apt update -y && apt install -y "$pkg"
+        recordStatus "Install package $pkg" $?
     else
-        echo "${packageName} is already installed"
-        recordStatus "Install package ${packageName} (already installed second time)" 0
+        recordStatus "Install package $pkg (already present)" 0
     fi
 done
 
-# Set Root User PW
+# 6) Fetch hostname from API
 ((taskCounter++))
-$rootUserPw="edcrfv"
+resp=$(curl -s -X POST "$api_url_generate_hostname" \
+    -H "Content-Type: application/json" \
+    -d "{\"fm-model\":\"$fm_model\"}")
+hostname=$(echo "$resp" | jq -r '.hostname')
+if [ -z "$hostname" ] || [ "$hostname" = "null" ]; then
+    recordStatus "Get hostname from API" 1
+    echo "ERROR: no hostname received"
+    exit 1
+else
+    recordStatus "Get hostname from API" 0
+fi
+
+# # 7) Set system keymap to German
+# ((taskCounter++))
+# dpkg-reconfigure -f noninteractive keyboard-configuration && service keyboard-setup restart
+# recordStatus "Set keymap to German" $?
+
+# 8) Set hostname
+((taskCounter++))
+hostnamectl set-hostname "$hostname.mf-support.de"
+recordStatus "Set system hostname" $?
+
+# 9) Configure network (DHCP on eth0)
+((taskCounter++))
+cat >/etc/network/interfaces.d/eth0 <<EOF
+auto eth0
+iface eth0 inet dhcp
+EOF
+recordStatus "Configure network interface" $?
+
+# 10) Set timezone
+((taskCounter++))
+timedatectl set-timezone Europe/Berlin
+recordStatus "Set timezone to Europe/Berlin" $?
+
+# 11) Restart hostname service
+((taskCounter++))
+systemctl restart systemd-hostnamed
+recordStatus "Restart hostname service" $?
+
+# 12) Install & configure SSH
+((taskCounter++))
+apt install -y openssh-server
+systemctl enable ssh && systemctl start ssh
+recordStatus "Configure sshd" $?
+
+# 13) Install & configure NTP
+((taskCounter++))
+apt install -y systemd-timesyncd
+systemctl enable systemd-timesyncd && systemctl start systemd-timesyncd
+recordStatus "Configure NTP" $?
+
+# 14) Update & upgrade system
+((taskCounter++))
+apt update -y && apt upgrade -y
+recordStatus "Update & upgrade system" $?
+
+# 15) Start Tailscale
+((taskCounter++))
+start_tailscale
+recordStatus "Start Tailscale" $?
+
+# 16) Re-install required packages (idempotency)
+((taskCounter++))
+for pkg in "${packageNames[@]}"; do
+    if ! command -v "$pkg" &>/dev/null; then
+        apt update -y && apt install -y "$pkg"
+        recordStatus "Re-install package $pkg" $?
+    else
+        recordStatus "Re-install package $pkg (already present)" 0
+    fi
+done
+
+# 17) Set root password
+((taskCounter++))
 rootUserPw=$(generateRandomString)
 echo "root:$rootUserPw" | chpasswd
+recordStatus "Set root password" $?
 
-# 19) Create random admin user
+# 18) Create random admin user
 ((taskCounter++))
 adminUserName=$(generateRandomString)
 adminUserPw=$(generateRandomString)
-useradd -m "$adminUserName"  # Using useradd with -m to create home directory
+useradd -m "$adminUserName"
 echo "$adminUserName:$adminUserPw" | chpasswd
-recordStatus "Create admin user ($adminUserName)" $?
+recordStatus "Create admin user $adminUserName" $?
 
-# 20) Create sudo group
+# 19) Ensure sudo group exists
 ((taskCounter++))
-echo "Create sudo group..."
-if grep -q "^sudo" /etc/group; then
-    echo "The group sudo already exists."
-    recordStatus "Create sudo group (already exists)" 0
+if grep -q "^sudo:" /etc/group; then
+    recordStatus "Ensure sudo group exists" 0
 else
-    groupadd sudo  # Using groupadd for Debian
+    groupadd sudo
     recordStatus "Create sudo group" $?
 fi
 
-# 21) Add sudo group to sudoers
+# 20) Grant sudo privileges
 ((taskCounter++))
 cp /etc/sudoers /etc/sudoers.bak
-if grep -Fxq "%sudo ALL=(ALL:ALL) ALL" /etc/sudoers; then  # Debian sudo format
-    echo "Entry already in /etc/sudoers."
-    recordStatus "Add sudo group to sudoers (already present)" 0
+if grep -q "^%sudo ALL=(ALL:ALL) ALL" /etc/sudoers; then
+    recordStatus "Add sudo group to sudoers" 0
 else
-    echo "%sudo ALL=(ALL:ALL) ALL" | tee -a /etc/sudoers
+    echo "%sudo ALL=(ALL:ALL) ALL" >> /etc/sudoers
     recordStatus "Add sudo group to sudoers" $?
 fi
 
-# 22) Add admin user to sudo group
+# 21) Add admin user to sudo
 ((taskCounter++))
-echo "Add user to sudo group..."
-usermod -aG sudo "$adminUserName"  # Using usermod for Debian
-recordStatus "Add $adminUserName to sudo" $?
+usermod -aG sudo "$adminUserName"
+recordStatus "Add $adminUserName to sudo group" $?
 
-# 23) Secure SSH configuration
+# 22) Harden SSH
 ((taskCounter++))
-echo "Securing SSH configuration..."
 cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
-sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
-sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+sed -i 's/#PermitRootLogin .*/PermitRootLogin no/' /etc/ssh/sshd_config
 echo "AllowUsers $adminUserName" >> /etc/ssh/sshd_config
-systemctl restart ssh  # Using systemctl for Debian
-recordStatus "Secure SSH configuration" $?
+systemctl restart ssh
+recordStatus "Harden SSH configuration" $?
 
-# 24) Configure fail2ban
+# 23) Configure Fail2Ban
 ((taskCounter++))
-echo "configuring Fail2Ban..."
-
-cat <<EOF > /etc/fail2ban/jail.local
+cat >/etc/fail2ban/jail.local <<EOF
 [DEFAULT]
 ignoreip = 127.0.0.1/8 ::1
 bantime  = 600
-findtime  = 600
+findtime = 600
 maxretry = 5
 
 [sshd]
 enabled = true
 EOF
-
-systemctl enable fail2ban  # Using systemctl for Debian
-systemctl start fail2ban
-systemctl restart ssh
+systemctl enable fail2ban && systemctl restart fail2ban
 recordStatus "Configure Fail2Ban" $?
 
-# 25) Grafana agent / Node exporter
+# 24) Install & start Node Exporter
 ((taskCounter++))
-wget https://github.com/prometheus/node_exporter/releases/download/v${node_exporter_version}/node_exporter-${node_exporter_version}.${node_exporter_release}.tar.gz
-tar -xvf node_exporter-${node_exporter_version}.${node_exporter_release}.tar.gz
+wget -q "https://github.com/prometheus/node_exporter/releases/download/v${node_exporter_version}/node_exporter-${node_exporter_version}.${node_exporter_release}.tar.gz"
+tar -xzf node_exporter-${node_exporter_version}.${node_exporter_release}.tar.gz
 mv node_exporter-${node_exporter_version}.${node_exporter_release}/node_exporter /usr/local/bin/
-rm -rf node_exporter-${node_exporter_version}.${node_exporter_release} node_exporter-${node_exporter_version}.${node_exporter_release}.tar.gz
+rm -rf node_exporter-${node_exporter_version}.${node_exporter_release}*
 
-# Create system user for node_exporter
-useradd -r -s /bin/false node_exporter  # Debian way to create system user
+useradd -r -s /bin/false node_exporter
+mkdir -p /etc/prometheus_node_exporter
+chown node_exporter:node_exporter /etc/prometheus_node_exporter
 
-# Konfigurationsverzeichnis und Datei anlegen
-mkdir -p /etc/prometheus_node_exporter/
-chmod 700 /etc/prometheus_node_exporter
-chown -R node_exporter:node_exporter /etc/prometheus_node_exporter
-
-# Create systemd service file for Debian
-cat << EOF > /etc/systemd/system/node_exporter.service
+cat >/etc/systemd/system/node_exporter.service <<EOF
 [Unit]
 Description=Node Exporter
 After=network.target
@@ -255,53 +279,37 @@ After=network.target
 [Service]
 User=node_exporter
 Group=node_exporter
-Type=simple
 ExecStart=/usr/local/bin/node_exporter
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Enable and start the service
 systemctl daemon-reload
-systemctl enable node_exporter
-systemctl start node_exporter
+systemctl enable node_exporter && systemctl start node_exporter
 recordStatus "Start node_exporter" $?
 
-#Send data to the API
+# 25) Send setup data to API
 ((taskCounter++))
-curl -X POST $api_url_update_data \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"hostname\": \"$hostname\",
-    \"adminUserName\": \"$adminUserName\",
-    \"adminUserPw\": \"$adminUserPw\",
-    \"rootUserPw\": \"$rootUserPw\"
-  }"
+curl -s -X POST "$api_url_update_data" \
+     -H "Content-Type: application/json" \
+     -d "{\"hostname\":\"$hostname\",\"adminUserName\":\"$adminUserName\",\"adminUserPw\":\"$adminUserPw\",\"rootUserPw\":\"$rootUserPw\"}"
+recordStatus "Send data to API" $?
 
-recordStatus "Send data to the API" $?
-
-# Print summary of every task
-echo
-echo "========================================"
+# === Summary ===
+echo -e "\n========================================"
 echo "Task summary:"
 for i in "${!taskStatus[@]}"; do
     echo " - ${taskStatus[$i]}"
 done
 echo "========================================"
-# Print final counters
+
 if [ $failedTaskCounter -ne 0 ]; then
     echo "$failedTaskCounter/$taskCounter tasks failed"
+    exit 1
 else
-    echo "$taskCounter/$taskCounter tasks completed"
-    echo "poweroff in 20s"
-    sleep 20
-    echo "poweroff now"
-    # Shutdown the system
-    poweroff now
+    echo "$taskCounter/$taskCounter tasks completed successfully"
+    # echo -n "Press [ENTER] to power off..."
+    # read
+    # poweroff
 fi
-
-# Reboot after one minute
-#echo "Setup finished. Rebooting in 1 minute..."
-#sleep 60
-#reboot
