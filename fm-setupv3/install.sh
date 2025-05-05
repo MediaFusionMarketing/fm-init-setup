@@ -143,10 +143,17 @@ fi
 # dpkg-reconfigure -f noninteractive keyboard-configuration && service keyboard-setup restart
 # recordStatus "Set keymap to German" $?
 
-# 8) Set hostname
 ((taskCounter++))
-hostnamectl set-hostname "$hostname.mf-support.de"
+echo "$hostname" > /etc/hostname
+sed -i "/127.0.1.1/d" /etc/hosts
+echo "127.0.1.1 $hostname.mf-support.de $hostname" >> /etc/hosts
 recordStatus "Set system hostname" $?
+
+
+# 8) Set hostname
+#((taskCounter++))
+#hostnamectl set-hostname "$hostname.mf-support.de"
+#recordStatus "Set system hostname" $?
 
 # 9) Configure network (DHCP on eth0)
 ((taskCounter++))
@@ -162,9 +169,9 @@ timedatectl set-timezone Europe/Berlin
 recordStatus "Set timezone to Europe/Berlin" $?
 
 # 11) Restart hostname service
-((taskCounter++))
-systemctl restart systemd-hostnamed
-recordStatus "Restart hostname service" $?
+#((taskCounter++))
+#systemctl restart systemd-hostnamed
+#recordStatus "Restart hostname service" $?
 
 # 12) Install & configure SSH
 ((taskCounter++))
