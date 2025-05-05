@@ -1,5 +1,6 @@
 #!/bin/bash
-
+set -x
+export DEBIAN_FRONTEND=noninteractive
 # Define color variables
 YELLOW="\e[33m"
 RED="\e[31m"
@@ -377,10 +378,10 @@ if [ $failedTaskCounter -ne 0 ]; then
     echo "$failedTaskCounter/$taskCounter tasks failed"
 else
     echo "$taskCounter/$taskCounter tasks completed"
-    echo "To power off the FusionMiner, press [ENTER]"
-    read
-    echo "FusionMiner powers off"
-    poweroff
+    # echo "To power off the FusionMiner, press [ENTER]"
+    # read
+    # echo "FusionMiner powers off"
+    # poweroff
 fi
 
 # Reboot after one minute
