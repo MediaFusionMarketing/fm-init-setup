@@ -143,12 +143,31 @@ fi
 # dpkg-reconfigure -f noninteractive keyboard-configuration && service keyboard-setup restart
 # recordStatus "Set keymap to German" $?
 
-((taskCounter++))
-echo "$hostname" > /etc/hostname
-sed -i "/127.0.1.1/d" /etc/hosts
-echo "127.0.1.1 $hostname.mf-support.de $hostname" >> /etc/hosts
-recordStatus "Set system hostname" $?
+#((taskCounter++))
+#echo "$hostname" > /etc/hostname
+#sed -i "/127.0.1.1/d" /etc/hosts
+#echo "127.0.1.1 $hostname.mf-support.de $hostname" >> /etc/hosts
+#recordStatus "Set system hostname" $?
 
+# 8) Set hostname (robust, chroot-kompatibel)
+((taskCounter++))
+
+# 1. hostnamectl verwenden, wenn vorhanden
+if command -v hostnamectl &>/dev/null; then
+    hostnamectl set-hostname "$hostname.mf-support.de"
+fi
+
+# 2. /etc/hostname setzen
+echo "$hostname" > /etc/hostname
+
+# 3. /etc/hosts anpassen (127.0.1.1-Zeile aktualisieren)
+sed -i '/127.0.1.1/d' /etc/hosts
+echo "127.0.1.1 $hostname.mf-support.de $hostname" >> /etc/hosts
+
+# 4. hostname sofort im laufenden System setzen (wichtig bei chroot oder ohne systemd)
+hostname "$hostname"
+
+recordStatus "Set hostname (robust)" $?
 
 # 8) Set hostname
 #((taskCounter++))
