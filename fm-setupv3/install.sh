@@ -60,8 +60,8 @@ function start_tailscale() {
     echo -e "${GREEN}Starting Tailscale with --advertise-tags 'tag:tailmox'...${RESET}"
 
     echo -e "tailscale will be configured..."
-    systemctl enable tailscaled  # Using systemctl for Debian
-    systemctl start tailscaled
+    #systemctl enable tailscaled  # Using systemctl for Debian
+    #systemctl start tailscaled
     recordStatus "Start tailscale service" $?
 
     echo 'net.ipv4.ip_forward = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
