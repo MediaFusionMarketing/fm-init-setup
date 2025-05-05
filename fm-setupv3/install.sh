@@ -377,10 +377,9 @@ if [ $failedTaskCounter -ne 0 ]; then
     echo "$failedTaskCounter/$taskCounter tasks failed"
 else
     echo "$taskCounter/$taskCounter tasks completed"
-    echo "To Poweroff the FusionMiner [ENTER]"
+    echo "To power off the FusionMiner, press [ENTER]"
     read
-    echo "FusionMiner powersoff"
-    # Shutdown the system
+    echo "FusionMiner powers off"
     poweroff
 fi
 
