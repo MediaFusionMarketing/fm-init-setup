@@ -171,13 +171,13 @@ else
 fi
 
 # 6) Set keymap
-((taskCounter++))
-echo "Setting the keymap to german..."
-# Debian method for setting keyboard layout
-sed -i 's/XKBLAYOUT="[^"]*"/XKBLAYOUT="de"/g' /etc/default/keyboard
-dpkg-reconfigure -f noninteractive keyboard-configuration
-#service keyboard-setup restart
-recordStatus "Set keymap to german" $?
+# ((taskCounter++))
+# echo "Setting the keymap to german..."
+# # Debian method for setting keyboard layout
+# sed -i 's/XKBLAYOUT="[^"]*"/XKBLAYOUT="de"/g' /etc/default/keyboard
+# dpkg-reconfigure -f noninteractive keyboard-configuration
+# #service keyboard-setup restart
+# recordStatus "Set keymap to german" $?
 
 # 7) Set hostname
 ((taskCounter++))
