@@ -103,6 +103,10 @@ install_fail2ban() {
   # 1) Paketliste aktualisieren und fail2ban installieren
   apt-get update
   apt-get install -y fail2ban
+  apt-get update
+  apt-get install -y rsyslog
+  systemctl enable rsyslog
+  systemctl start rsyslog
 
   # 2) Backup bestehender Konfiguration (falls vorhanden)
   local TIMESTAMP
@@ -126,11 +130,11 @@ banaction = iptables-multiport
 mta = mail
 loglevel = INFO
 logtarget = /var/log/fail2ban.log
+backend = systemd
 
 [sshd]
 enabled   = true
 port      = ssh
-logpath   = /var/log/auth.log
 maxretry  = 5
 
 [recidive]
