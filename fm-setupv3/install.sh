@@ -139,9 +139,9 @@ else
 fi
 
 # # 7) Set system keymap to German
-# ((taskCounter++))
-# dpkg-reconfigure -f noninteractive keyboard-configuration && service keyboard-setup restart
-# recordStatus "Set keymap to German" $?
+((taskCounter++))
+dpkg-reconfigure -f noninteractive keyboard-configuration && service keyboard-setup restart
+recordStatus "Set keymap to German" $?
 
 #((taskCounter++))
 #echo "$hostname" > /etc/hostname
@@ -153,26 +153,26 @@ fi
 ((taskCounter++))
 
 # 1. hostnamectl verwenden, wenn vorhanden
-if command -v hostnamectl &>/dev/null; then
-    hostnamectl set-hostname "$hostname.mf-support.de"
-fi
+# if command -v hostnamectl &>/dev/null; then
+#     hostnamectl set-hostname "$hostname.mf-support.de"
+# fi
 
-# 2. /etc/hostname setzen
-echo "$hostname" > /etc/hostname
+# # 2. /etc/hostname setzen
+# echo "$hostname" > /etc/hostname
 
-# 3. /etc/hosts anpassen (127.0.1.1-Zeile aktualisieren)
-sed -i '/127.0.1.1/d' /etc/hosts
-echo "127.0.1.1 $hostname.mf-support.de $hostname" >> /etc/hosts
+# # 3. /etc/hosts anpassen (127.0.1.1-Zeile aktualisieren)
+# sed -i '/127.0.1.1/d' /etc/hosts
+# echo "127.0.1.1 $hostname.mf-support.de $hostname" >> /etc/hosts
 
-# 4. hostname sofort im laufenden System setzen (wichtig bei chroot oder ohne systemd)
-hostname "$hostname"
+# # 4. hostname sofort im laufenden System setzen (wichtig bei chroot oder ohne systemd)
+# hostname "$hostname"
 
-recordStatus "Set hostname (robust)" $?
+# recordStatus "Set hostname (robust)" $?
 
 # 8) Set hostname
-#((taskCounter++))
-#hostnamectl set-hostname "$hostname.mf-support.de"
-#recordStatus "Set system hostname" $?
+((taskCounter++))
+hostnamectl set-hostname "$hostname.mf-support.de"
+recordStatus "Set system hostname" $?
 
 # 9) Configure network (DHCP on eth0)
 ((taskCounter++))
@@ -188,9 +188,9 @@ timedatectl set-timezone Europe/Berlin
 recordStatus "Set timezone to Europe/Berlin" $?
 
 # 11) Restart hostname service
-#((taskCounter++))
-#systemctl restart systemd-hostnamed
-#recordStatus "Restart hostname service" $?
+((taskCounter++))
+systemctl restart systemd-hostnamed
+recordStatus "Restart hostname service" $?
 
 # 12) Install & configure SSH
 ((taskCounter++))
