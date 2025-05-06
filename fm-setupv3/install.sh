@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail
+
 # Define color variables
 YELLOW="\e[33m"
 RED="\e[31m"
@@ -91,6 +93,66 @@ start_tailscale() {
     echo -e "${GREEN}MagicDNS name: $DNSNAME${RESET}"
 }
 
+install_fail2ban() {
+  # Prüfen, ob das Skript als root läuft
+  if [[ $EUID -ne 0 ]]; then
+    echo "Dieses Skript muss als root ausgeführt werden." >&2
+    return 1
+  fi
+
+  # 1) Paketliste aktualisieren und fail2ban installieren
+  apt-get update
+  apt-get install -y fail2ban
+
+  # 2) Backup bestehender Konfiguration (falls vorhanden)
+  local TIMESTAMP
+  TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+  if [[ -e /etc/fail2ban/jail.local ]]; then
+    cp /etc/fail2ban/jail.local /etc/fail2ban/jail.local.bak.$TIMESTAMP
+    echo "Backup der alten jail.local: /etc/fail2ban/jail.local.bak.$TIMESTAMP"
+  fi
+
+  # 3) Neue Standard-Konfiguration schreiben
+  cat > /etc/fail2ban/jail.local << 'EOF'
+[DEFAULT]
+ignoreip = 127.0.0.1/8 ::1
+bantime  = 3600
+findtime = 900
+maxretry = 5
+destemail = root@localhost
+sender = fail2ban@%H
+protocol = tcp
+banaction = iptables-multiport
+mta = mail
+loglevel = INFO
+logtarget = /var/log/fail2ban.log
+
+[sshd]
+enabled   = true
+port      = ssh
+logpath   = /var/log/auth.log
+maxretry  = 5
+
+[recidive]
+enabled   = true
+logpath   = /var/log/fail2ban.log
+bantime   = 604800
+findtime  = 86400
+maxretry  = 10
+EOF
+
+  # 4) Dateiberechtigungen setzen
+  chown root:root /etc/fail2ban/jail.local
+  chmod 644       /etc/fail2ban/jail.local
+
+  # 5) Dienst aktivieren und neu starten
+  systemctl enable fail2ban
+  systemctl restart fail2ban
+
+  echo "fail2ban wurde installiert und mit der Standard-Konfiguration eingerichtet."
+}
+
+
 # 2) Random string generator
 generateRandomString() {
     local len=$((RANDOM % 4 + 12))
@@ -144,30 +206,10 @@ dpkg-reconfigure -f noninteractive keyboard-configuration && service keyboard-se
 recordStatus "Set keymap to German" $?
 
 #((taskCounter++))
-#echo "$hostname" > /etc/hostname
-#sed -i "/127.0.1.1/d" /etc/hosts
-#echo "127.0.1.1 $hostname.mf-support.de $hostname" >> /etc/hosts
-#recordStatus "Set system hostname" $?
-
-# 8) Set hostname (robust, chroot-kompatibel)
-((taskCounter++))
-
-# 1. hostnamectl verwenden, wenn vorhanden
-# if command -v hostnamectl &>/dev/null; then
-#     hostnamectl set-hostname "$hostname.mf-support.de"
-# fi
-
-# # 2. /etc/hostname setzen
-# echo "$hostname" > /etc/hostname
-
-# # 3. /etc/hosts anpassen (127.0.1.1-Zeile aktualisieren)
-# sed -i '/127.0.1.1/d' /etc/hosts
-# echo "127.0.1.1 $hostname.mf-support.de $hostname" >> /etc/hosts
-
-# # 4. hostname sofort im laufenden System setzen (wichtig bei chroot oder ohne systemd)
-# hostname "$hostname"
-
-# recordStatus "Set hostname (robust)" $?
+echo "$hostname" > /etc/hostname
+sed -i "/127.0.1.1/d" /etc/hosts
+echo "127.0.1.1 $hostname.mf-support.de $hostname" >> /etc/hosts
+recordStatus "Set system hostname" $?
 
 # 8) Set hostname
 ((taskCounter++))
@@ -273,17 +315,7 @@ recordStatus "Harden SSH configuration" $?
 
 # 23) Configure Fail2Ban
 ((taskCounter++))
-cat >/etc/fail2ban/jail.local <<EOF
-[DEFAULT]
-ignoreip = 127.0.0.1/8 ::1
-bantime  = 600
-findtime = 600
-maxretry = 5
-
-[sshd]
-enabled = true
-EOF
-systemctl enable fail2ban && systemctl restart fail2ban
+install_fail2ban
 recordStatus "Configure Fail2Ban" $?
 
 # 24) Install & start Node Exporter
