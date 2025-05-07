@@ -1,7 +1,5 @@
 #!/bin/bash
 
-#set -euo pipefail
-
 # Define color variables
 YELLOW="\e[33m"
 RED="\e[31m"
@@ -366,14 +364,20 @@ for i in "${!taskStatus[@]}"; do
 done
 echo "========================================"
 
-if [ $failedTaskCounter -ne 0 ]; then
+if [ "$failedTaskCounter" -ne 0 ]; then
     echo "$failedTaskCounter/$taskCounter tasks failed"
     exit 1
 else
-    systemctl disable install.service
-    rm -f /etc/systemd/system/install.service
+    if [ -f /etc/systemd/system/install.service ]; then
+        systemctl disable install.service
+        rm -f /etc/systemd/system/install.service
+        systemctl daemon-reload
+    fi
+
     echo "$taskCounter/$taskCounter tasks completed successfully"
+    exit 0
+fi
+
     # echo -n "Press [ENTER] to power off..."
     # read
     # poweroff
-fi
