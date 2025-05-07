@@ -14,6 +14,9 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/install.sh
+# Nach erfolgreichem Lauf den Dienst deaktivieren und systemd neu laden
+ExecStartPost=/usr/bin/systemctl disable install.service
+ExecStartPost=/usr/bin/systemctl daemon-reload
 
 [Install]
 WantedBy=multi-user.target
