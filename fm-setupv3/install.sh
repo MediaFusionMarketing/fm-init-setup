@@ -202,6 +202,11 @@ dpkg-reconfigure -f noninteractive keyboard-configuration
 service keyboard-setup restart
 recordStatus "Set keymap to german" $?
 
+((taskCounter++))
+cp /etc/hosts /etc/hosts.bak
+sed -i "s|^127\.0\.1\.1[[:space:]]\+debian|127.0.1.1 $hostname.mf-support.de $hostname|" /etc/hosts
+recordStatus "Set system hostname in hosts file" $?
+
 # 7) Set hostname
 ((taskCounter++))
 echo "Setting the hostname to $hostname"
@@ -324,13 +329,21 @@ echo "configuring Fail2Ban..."
 
 cat <<EOF > /etc/fail2ban/jail.local
 [DEFAULT]
-ignoreip = 127.0.0.1/8 ::1
-bantime  = 600
+ignoreip  = 127.0.0.1/8 ::1
+bantime   = 600
 findtime  = 600
-maxretry = 5
+maxretry  = 5
+# Wenn Du systemd-Logs statt Files nutzen willst:
+backend   = systemd
 
 [sshd]
-enabled = true
+enabled   = true
+filter    = sshd
+port      = ssh
+# Log-Pfad für Debian/Ubuntu:
+logpath   = /var/log/auth.log
+# (bei systemd-Backend reicht manchmal nur journalmatch, aber logpath funktioniert überall)
+
 EOF
 
 systemctl enable fail2ban  # Using systemctl for Debian
