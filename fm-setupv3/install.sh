@@ -20,7 +20,7 @@ declare -a taskStatus
 node_exporter_version="1.8.2"
 node_exporter_release="linux-amd64"  # Changed to amd64 for 64-bit systems
 packageNames=("tailscale" "fail2ban" "sudo" "curl" "jq" "tar")
-auth_key="3376c391aa3f648a6d7521c7423ce2f186a3f47da140f1c6"
+auth_key="f40e4813813bd39fb66667c32082515e2df1c0e6ebe9404e"
 adminUserName=""
 adminUserPw=""
 hostname=""
@@ -108,8 +108,8 @@ generateRandomString() {
     echo "$randomString"
 }
 
-if [ "$(hostname)" != "debian" ]; then
-    echo -e "${RED}This script was already running${RESET}"
+if [ -f /root/install.lock ]; then
+    echo "The script is already running. Exiting..."
     exit 1
 fi
 
@@ -384,6 +384,7 @@ if [ $failedTaskCounter -ne 0 ]; then
     echo "$failedTaskCounter/$taskCounter tasks failed"
 else
     echo "$taskCounter/$taskCounter tasks completed"
+    touch /root/install.lock  # Create lock file to prevent re-running
     # echo "poweroff in 20s"
     # sleep 20
     # echo "poweroff now"
