@@ -19,7 +19,7 @@ declare -a taskStatus
 # vars###############################################
 node_exporter_version="1.8.2"
 node_exporter_release="linux-amd64"  # Changed to amd64 for 64-bit systems
-packageNames=("tailscale" "fail2ban" "sudo" "curl" "jq" "tar")
+packageNames=("tailscale" "fail2ban" "sudo" "curl" "jq" "tar" "gnupg" "ca-certificates" "apt-transport-https")
 auth_key="f40e4813813bd39fb66667c32082515e2df1c0e6ebe9404e"
 adminUserName=""
 adminUserPw=""
@@ -123,6 +123,23 @@ else
     echo "NOTE: the script will be executed as root"
     taskStatus["$taskCounter"]="Task #$taskCounter: Check for root user: SUCCESS"
 fi
+
+# 8) Set up network interface
+((taskCounter++))
+echo "Setting up the network interface..."
+# Debian network configuration
+cat <<EOF > /etc/network/interfaces.d/eth0
+auto eth0
+iface eth0 inet dhcp
+EOF
+recordStatus "Configure network interface" $?
+
+while ! ping -c 1 -W 1 8.8.8.8 >/dev/null 2>&1; do
+    echo "Waiting for network connection..."
+    sleep 5
+done
+echo "Network connection established."
+
 
 ((taskCounter++))
 install_tailscale
