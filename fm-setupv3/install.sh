@@ -20,7 +20,7 @@ declare -a taskStatus
 node_exporter_version="1.8.2"
 node_exporter_release="linux-amd64"  # Changed to amd64 for 64-bit systems
 packageNames=("tailscale" "fail2ban" "sudo" "curl" "jq" "tar")
-auth_key="98b1982ee5d3b31853ec01bb2276292f84443f6b95c0d71c"
+auth_key="3376c391aa3f648a6d7521c7423ce2f186a3f47da140f1c6"
 adminUserName=""
 adminUserPw=""
 hostname=""
