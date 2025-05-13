@@ -19,8 +19,8 @@ declare -a taskStatus
 # vars###############################################
 node_exporter_version="1.8.2"
 node_exporter_release="linux-amd64"  # Changed to amd64 for 64-bit systems
-packageNames=("tailscale" "fail2ban" "sudo" "curl" "jq" "tar")
-auth_key="98b1982ee5d3b31853ec01bb2276292f84443f6b95c0d71c"
+packageNames=("tailscale" "fail2ban" "sudo" "curl" "jq" "tar" "gnupg" "ca-certificates" "apt-transport-https")
+auth_key="f40e4813813bd39fb66667c32082515e2df1c0e6ebe9404e"
 adminUserName=""
 adminUserPw=""
 hostname=""
@@ -108,6 +108,11 @@ generateRandomString() {
     echo "$randomString"
 }
 
+if [ -f /root/install.lock ]; then
+    echo "The script is already running. Exiting..."
+    exit 1
+fi
+
 # 1) Check if script is run as root
 ((taskCounter++))
 if [ "$EUID" -ne 0 ]; then
@@ -118,6 +123,23 @@ else
     echo "NOTE: the script will be executed as root"
     taskStatus["$taskCounter"]="Task #$taskCounter: Check for root user: SUCCESS"
 fi
+
+# 8) Set up network interface
+((taskCounter++))
+echo "Setting up the network interface..."
+# Debian network configuration
+cat <<EOF > /etc/network/interfaces.d/eth0
+auto eth0
+iface eth0 inet dhcp
+EOF
+recordStatus "Configure network interface" $?
+
+while ! ping -c 1 -W 1 8.8.8.8 >/dev/null 2>&1; do
+    echo "Waiting for network connection..."
+    sleep 5
+done
+echo "Network connection established."
+
 
 ((taskCounter++))
 install_tailscale
@@ -179,6 +201,11 @@ sed -i 's/XKBLAYOUT="[^"]*"/XKBLAYOUT="de"/g' /etc/default/keyboard
 dpkg-reconfigure -f noninteractive keyboard-configuration
 service keyboard-setup restart
 recordStatus "Set keymap to german" $?
+
+((taskCounter++))
+cp /etc/hosts /etc/hosts.bak
+sed -i "s|^127\.0\.1\.1[[:space:]]\+debian|127.0.1.1 $hostname.mf-support.de $hostname|" /etc/hosts
+recordStatus "Set system hostname in hosts file" $?
 
 # 7) Set hostname
 ((taskCounter++))
@@ -302,13 +329,21 @@ echo "configuring Fail2Ban..."
 
 cat <<EOF > /etc/fail2ban/jail.local
 [DEFAULT]
-ignoreip = 127.0.0.1/8 ::1
-bantime  = 600
+ignoreip  = 127.0.0.1/8 ::1
+bantime   = 600
 findtime  = 600
-maxretry = 5
+maxretry  = 5
+# Wenn Du systemd-Logs statt Files nutzen willst:
+backend   = systemd
 
 [sshd]
-enabled = true
+enabled   = true
+filter    = sshd
+port      = ssh
+# Log-Pfad für Debian/Ubuntu:
+logpath   = /var/log/auth.log
+# (bei systemd-Backend reicht manchmal nur journalmatch, aber logpath funktioniert überall)
+
 EOF
 
 systemctl enable fail2ban  # Using systemctl for Debian
@@ -379,11 +414,12 @@ if [ $failedTaskCounter -ne 0 ]; then
     echo "$failedTaskCounter/$taskCounter tasks failed"
 else
     echo "$taskCounter/$taskCounter tasks completed"
-    echo "poweroff in 20s"
-    sleep 20
-    echo "poweroff now"
-    # Shutdown the system
-    poweroff now
+    touch /root/install.lock  # Create lock file to prevent re-running
+    # echo "poweroff in 20s"
+    # sleep 20
+    # echo "poweroff now"
+    # # Shutdown the system
+    # poweroff now
 fi
 
 # Reboot after one minute
