@@ -108,6 +108,14 @@ generateRandomString() {
     echo "$randomString"
 }
 
+function display_fix() {
+     sed -Ei 's/^deb(.*)bookworm main$/deb\1bookworm main non-free-firmware/' /etc/apt/sources.list
+     apt-get update
+     apt-get install -y firmware-amd-graphics firmware-realtek
+     modprobe -r amdgpu
+     modprobe amdgpu           # /sys/class/drm erscheint jetzt
+}
+
 if [ -f /root/install.lock ]; then
     echo "The script is already running. Exiting..."
     exit 1
@@ -143,7 +151,11 @@ echo "Network connection established."
 
 ((taskCounter++))
 install_tailscale
-recordStatus "CINstalling Tailscale..." $?
+recordStatus "Installing Tailscale..." $?
+
+((taskCounter++))+
+display_fix
+recordStatus "Installing firmware-amd-graphics..." $?
 
 # 2) Install required packages
 ((taskCounter++))
@@ -415,14 +427,4 @@ if [ $failedTaskCounter -ne 0 ]; then
 else
     echo "$taskCounter/$taskCounter tasks completed"
     touch /root/install.lock  # Create lock file to prevent re-running
-    # echo "poweroff in 20s"
-    # sleep 20
-    # echo "poweroff now"
-    # # Shutdown the system
-    # poweroff now
 fi
-
-# Reboot after one minute
-#echo "Setup finished. Rebooting in 1 minute..."
-#sleep 60
-#reboot
