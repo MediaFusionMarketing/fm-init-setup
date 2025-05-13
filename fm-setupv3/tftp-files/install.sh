@@ -129,6 +129,43 @@ function display_fix() {
      modprobe amdgpu           # /sys/class/drm erscheint jetzt
 }
 
+suppress_boot_errors() {
+    local grub_file="/etc/default/grub"
+    local new_cmdline='quiet loglevel=0 rd.systemd.show_status=auto rd.udev.log_level=3'
+
+    echo "Starte Konfiguration von $grub_file ..."
+
+    if [[ $EUID -ne 0 ]]; then
+        echo "Diese Funktion muss als root ausgeführt werden (sudo)."
+        return 1
+    fi
+
+    if [[ ! -f "$grub_file" ]]; then
+        echo "GRUB-Konfigurationsdatei nicht gefunden: $grub_file"
+        return 1
+    fi
+
+    # Backup
+    cp "$grub_file" "${grub_file}.backup.$(date +%F_%T)"
+    echo "Backup erstellt: ${grub_file}.backup.$(date +%F_%T)"
+
+    # Setze oder ersetze die Zeile
+    if grep -q '^GRUB_CMDLINE_LINUX_DEFAULT=' "$grub_file"; then
+        sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"${new_cmdline}\"|" "$grub_file"
+    else
+        echo "GRUB_CMDLINE_LINUX_DEFAULT=\"${new_cmdline}\"" >> "$grub_file"
+    fi
+
+    echo "GRUB_CMDLINE_LINUX_DEFAULT gesetzt auf:"
+    echo "   \"$new_cmdline\""
+
+    echo "Führe update-grub aus ..."
+    update-grub && echo "GRUB erfolgreich aktualisiert." || echo "Fehler bei update-grub."
+
+    echo "Bitte jetzt neustarten, um die Änderungen zu testen."
+}
+
+
 if [ -f /root/install.lock ]; then
     echo "The script is already running. Exiting..."
     exit 1
