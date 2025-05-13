@@ -27,6 +27,7 @@ hostname=""
 fm_model="o1"
 api_url_generate_hostname="http://192.168.20.9:5000/api/v1/fm/generate-hostname"
 api_url_update_data="http://192.168.20.9:5000/api/v1/fm/update"
+api_print_setup_code="http://192.168.20.9:5000/api/v1/fm/print-setup-code"
 rootUserPw= ""
 
 # Helper function to record each task's status
@@ -106,6 +107,18 @@ generateRandomString() {
         randomString+=${chars:randomIndex:1}
     done
     echo "$randomString"
+}
+
+# Generate setup code
+generateSetupCode() {
+    local lenght=$((RANDOM % 4 + 12))
+    local chars="ABCDEFGHJKLMNPQRSTUVWXYZ123456789"
+    local setupCode=""
+    for ((i = 0; i < lenght; i++)); do
+        randomIndex=$((RANDOM % ${#chars}))
+        setupCode+=${chars:randomIndex:1}
+    done
+    echo "$setupCode"
 }
 
 function display_fix() {
@@ -412,6 +425,15 @@ curl -X POST $api_url_update_data \
   }"
 
 recordStatus "Send data to the API" $?
+
+((taskCounter++))
+curl -X POST $api_print_setup_code \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"hostname\": \"$hostname\"
+    \"setup_code\": \"$setupCode\"
+  }"
+  recordStatus "Print setup code" $?
 
 # Print summary of every task
 echo
