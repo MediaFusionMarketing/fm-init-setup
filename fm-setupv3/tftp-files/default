@@ -8,4 +8,4 @@ TIMEOUT 1
 LABEL install
     MENU LABEL Automatische Installation (Preseed)
     KERNEL debian-installer/amd64/linux
-    APPEND initrd=debian-installer/amd64/initrd.gz auto=true priority=critical url=http://192.168.50.45/pxe/preseed.cfg interface=auto debian-installer/locale=de_DE.UTF-8 console-setup/layoutcode=de
+    APPEND initrd=debian-installer/amd64/initrd.gz auto=true priority=critical preseed/url=http://192.168.50.45/pxe/preseed.cfg netcfg/choose_interface=auto debian-installer/locale=de_DE.UTF-8 console-setup/layoutcode=de console-setup/variant=nodeadkeys DEBIAN_FRONTEND=noninteractive
